@@ -90,8 +90,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
             
-            // Update UI
-            passkeyResult.innerHTML = '<p>Attempting to create a passkey conditionally...</p>';
+            // Update UI with more informative message about when conditional create is likely to succeed
+            passkeyResult.innerHTML = `
+                <p>Attempting to create a passkey conditionally...</p>
+                <p><em>Note: According to Chrome's documentation, conditional passkey creation is more likely to succeed when:</em></p>
+                <ul>
+                    <li>You have a password saved in your password manager for this site</li>
+                    <li>You sign in using autofill from your password manager</li>
+                </ul>
+            `;
+            
+            // First, abort any ongoing WebAuthn operations
+            // This is critical as mentioned in the documentation
+            WebAuthnService.abortOngoingWebAuthnOperation();
             
             // Attempt to create a passkey
             const result = await WebAuthnService.createPasskeyConditionally(user);
@@ -100,20 +111,35 @@ document.addEventListener('DOMContentLoaded', async () => {
                 passkeyResult.innerHTML = `
                     <p class="success">Passkey created successfully!</p>
                     <p>In a real application, this credential would be sent to the server for verification and registration.</p>
+                    <p>Note: The server should ignore the User Presence and User Verified flags as they will be false for conditional creation.</p>
                     <details>
                         <summary>Credential Details</summary>
                         <pre>${JSON.stringify(result.credential, null, 2)}</pre>
                     </details>
                 `;
             } else {
-                passkeyResult.innerHTML = `
-                    <p class="error">Failed to create passkey: ${result.error}</p>
+                // Handle specific error cases gracefully
+                let errorMessage = result.error;
+                let additionalInfo = `
                     <p>This could be because:</p>
                     <ul>
                         <li>You don't have a saved password for this site in your password manager</li>
                         <li>You haven't recently signed in with a password</li>
                         <li>Your password manager doesn't support this feature</li>
                     </ul>
+                `;
+                
+                // For specific error cases, provide more targeted information
+                if (result.error === 'A passkey already exists for this account') {
+                    additionalInfo = `
+                        <p>A passkey already exists for this account in your password manager.</p>
+                        <p>In a real application, the server would maintain a list of registered passkeys and use the excludeCredentials parameter to prevent this error.</p>
+                    `;
+                }
+                
+                passkeyResult.innerHTML = `
+                    <p class="error">Failed to create passkey: ${errorMessage}</p>
+                    ${additionalInfo}
                 `;
             }
         } catch (error) {
@@ -133,13 +159,73 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('password').value = '';
     };
 
+    // Try to sign in with a passkey first
+    const tryPasskeySignIn = async () => {
+        try {
+            const support = await WebAuthnService.checkSupport();
+            if (!support.webauthnSupported || !support.conditionalCreateSupported) {
+                console.log('WebAuthn or Conditional Create not supported, skipping passkey sign-in attempt');
+                return false;
+            }
+            
+            console.log('Attempting to sign in with passkey...');
+            
+            // Attempt to get credentials conditionally
+            const result = await WebAuthnService.getCredentialConditionally();
+            
+            if (result.success) {
+                console.log('Passkey sign-in successful!');
+                
+                // In a real application, you would verify this credential with the server
+                // and get the user information
+                
+                // For demo purposes, we'll just simulate a successful sign-in
+                const user = {
+                    username: 'demo',
+                    id: '1234567890',
+                    displayName: 'Demo User (via Passkey)'
+                };
+                
+                // Update UI to show successful login
+                loginSection.classList.add('hidden');
+                passkeySection.classList.remove('hidden');
+                
+                statusMessage.textContent = `Welcome, ${user.displayName}! You've successfully signed in with a passkey.`;
+                statusMessage.className = 'success';
+                
+                passkeyResult.innerHTML = `
+                    <p class="success">Signed in with passkey successfully!</p>
+                    <details>
+                        <summary>Credential Details</summary>
+                        <pre>${JSON.stringify(result.credential, null, 2)}</pre>
+                    </details>
+                `;
+                
+                return true;
+            } else {
+                console.log('Passkey sign-in not successful, falling back to password form');
+                return false;
+            }
+        } catch (error) {
+            console.error('Error trying passkey sign-in:', error);
+            return false;
+        }
+    };
+
     // Initialize the application
     const init = async () => {
         await checkFeatureSupport();
         
-        // Set up event listeners
+        // Always set up the login form event listener
         loginForm.addEventListener('submit', handleLogin);
         signOutButton.addEventListener('click', handleSignOut);
+        
+        // Try to sign in with a passkey first
+        // This demonstrates the conditional get functionality
+        await tryPasskeySignIn();
+        
+        // The login form is visible by default, so no need to show it explicitly
+        // if passkey sign-in fails
     };
 
     // Start the application

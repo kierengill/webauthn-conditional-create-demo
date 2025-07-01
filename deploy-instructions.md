@@ -2,6 +2,20 @@
 
 Since Google Password Manager can't save passwords from localhost domains, we can deploy this proof of concept to GitHub Pages for free. Here's how to do it:
 
+## Implementation Details
+
+This proof of concept has been updated to properly handle all the caveats mentioned in the Chrome documentation:
+
+1. **Ignoring User Presence and User Verification flags**: The server-side code (simulated in our frontend) is designed to ignore these flags, which will be false for conditional creation.
+
+2. **Aborting ongoing WebAuthn calls**: We use the AbortController to properly abort any ongoing WebAuthn operations before attempting a conditional create.
+
+3. **Graceful exception handling**: We handle specific exceptions like InvalidStateError, NotAllowedError, and AbortError gracefully without showing confusing error messages to the user.
+
+4. **Conditional Get before Create**: The application first attempts to sign in with an existing passkey using conditional get before showing the password form.
+
+5. **Password-based authentication requirement**: As noted in the documentation, conditional create only works after password-based authentication, not with passwordless methods like magic links.
+
 ## Step 1: Modify the Code for Static Hosting
 
 Since GitHub Pages only supports static websites, we need to make a small modification to our code to work without the Python server:
@@ -57,6 +71,22 @@ id: window.location.hostname || 'localhost'
 
 // To this:
 id: 'YOUR_USERNAME.github.io'
+```
+
+Also, if you want to exclude existing credentials to prevent the "InvalidStateError" (passkey already exists), you would typically fetch the list of existing credentials from your server and include them in the excludeCredentials parameter. In a real application, this would look like:
+
+```javascript
+// Example of excluding existing credentials
+const publicKeyOptions = {
+    // ... other options
+    excludeCredentials: [
+        {
+            id: Uint8Array.from(existingCredentialId, c => c.charCodeAt(0)),
+            type: 'public-key',
+            transports: ['internal']
+        }
+    ]
+};
 ```
 
 ## Testing with Google Password Manager
